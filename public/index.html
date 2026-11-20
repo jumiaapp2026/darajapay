@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DarajaPay STK Bot</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      padding: 2rem 1rem;
+      display: flex;
+      justify-content: center;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 720px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.4rem; color: #38bdf8; }
+    p.sub { color: #94a3b8; font-size: 0.9rem; margin: 0 0 1.25rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: #cbd5e1; }
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 1rem; }
+    @media (max-width: 600px) { .row-2 { grid-template-columns: 1fr; } }
+    input, textarea {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.92rem;
+    }
+    textarea { min-height: 170px; resize: vertical; font-family: monospace; }
+    input:focus, textarea:focus { outline: none; border-color: #38bdf8; }
+    .file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 0.5rem 0 0.25rem;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      flex-wrap: wrap;
+    }
+    .count-pill {
+      background: #0f172a;
+      border: 1px solid #334155;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      color: #e2e8f0;
+      font-family: monospace;
+    }
+    .error-banner {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+      font-size: 0.88rem;
+    }
+    .actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+    button {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    #startBtn { background: #10b981; color: #052e16; }
+    #startBtn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    #stopBtn { background: #ef4444; color: #fff; }
+    #stopBtn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    .status-bar {
+      margin-top: 1.25rem;
+      padding: 0.75rem;
+      background: #0f172a;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .logs {
+      margin-top: 1rem;
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 0.75rem;
+      max-height: 260px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+    .log-item { padding: 0.3rem 0; border-bottom: 1px solid #0f172a; word-break: break-word; }
+    .ok { color: #34d399; }
+    .err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>DarajaPay STK Bot</h1>
+    <p class="sub">Sends to <strong>every</strong> number you paste or upload, in order, <strong>3 seconds apart</strong>.</p>
+
+    <div class="row-2">
+      <div>
+        <label for="amount">Amount (KES)</label>
+        <input id="amount" type="number" min="1" value="100" required />
+      </div>
+      <div>
+        <label for="till">Till Number</label>
+        <input id="till" type="text" placeholder="e.g. 123456" required />
+      </div>
+    </div>
+
+    <div>
+      <label for="numbers">Phone Numbers (one per line, comma, semicolon, or tab separated)</label>
+      <textarea id="numbers" placeholder="254712345678&#10;254798765432&#10;254112233445"></textarea>
+      <div class="file-row">
+        <input id="csvFile" type="file" accept=".csv,.txt" style="max-width: 280px; padding: 0.35rem;" />
+        <span class="count-pill" id="parsedCount">Numbers ready: 0</span>
+      </div>
+    </div>
+
+    <div id="errorBanner" class="error-banner"></div>
+
+    <div class="actions">
+      <button id="startBtn" type="button" onclick="startBot()">Send to All</button>
+      <button id="stopBtn" type="button" onclick="stopBot()" disabled>Stop</button>
+    </div>
+
+    <div class="status-bar">
+      <span id="stateText">Status: Idle</span>
+      <span id="progressText">0 / 0 (OK: 0, Err: 0)</span>
+    </div>
+
+    <div class="logs" id="logs">
+      <div style="color:#64748b;">Showing latest 100 logs...</div>
+    </div>
+  </div>
+
+  <script>
+    let pollTimer = null;
+    let countTimer = null;
+
+    function showError(msg) {
+      const banner = document.getElementById("errorBanner");
+      if (!msg) {
+        banner.style.display = "none";
+        banner.textContent = "";
+      } else {
+        banner.style.display = "block";
+        banner.textContent = msg;
+      }
+    }
+
+    function parseAllNumbers(text) {
+      return text
+        .split(/[\r\n,;\t]+/)
+        .map(item => item.trim().replace(/[\s\-+()"'.]/g, ""))
+        .filter(Boolean);
+    }
+
+    function updateParsedCount() {
+      const count = parseAllNumbers(document.getElementById("numbers").value).length;
+      document.getElementById("parsedCount").textContent = `Numbers ready: ${count.toLocaleString()}`;
+    }
+
+    document.getElementById("numbers").addEventListener("input", () => {
+      if (countTimer) clearTimeout(countTimer);
+      countTimer = setTimeout(updateParsedCount, 200);
+    });
+
+    document.getElementById("csvFile").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const textarea = document.getElementById("numbers");
+      textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${text}` : text;
+      updateParsedCount();
+    });
+
+    async function startBot() {
+      showError("");
+      const amount = document.getElementById("amount").value.trim();
+      const tillNumber = document.getElementById("till").value.trim();
+      const numbers = parseAllNumbers(document.getElementById("numbers").value);
+
+      if (numbers.length === 0) {
+        showError("Please enter or upload at least one phone number.");
+        return;
+      }
+
+      document.getElementById("startBtn").disabled = true;
+      document.getElementById("stateText").textContent = `Status: Queuing all ${numbers.length} numbers...`;
+
+      try {
+        const res = await fetch("/api/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ numbers, amount, tillNumber })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error || `Server rejected request (${res.status}).`);
+          document.getElementById("startBtn").disabled = false;
+          document.getElementById("stateText").textContent = "Status: Idle";
+          return;
+        }
+
+        startPolling();
+      } catch (err) {
+        showError(`Network error calling /api/start: ${err.message}`);
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stateText").textContent = "Status: Idle";
+      }
+    }
+
+    async function stopBot() {
+      try {
+        await fetch("/api/stop", { method: "POST" });
+      } catch (err) {
+        showError(`Failed to send stop: ${err.message}`);
+      }
+    }
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      fetchStatus();
+      pollTimer = setInterval(fetchStatus, 1000);
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+
+        document.getElementById("startBtn").disabled = Boolean(data.running);
+        document.getElementById("stopBtn").disabled = !data.running;
+
+        const remaining = Math.max(0, (data.total || 0) - (data.completed || 0));
+        const estMinutes = Math.ceil((remaining * 3) / 60);
+        const rangeHint = data.firstNumber && data.lastNumber ? ` [${data.firstNumber} → ${data.lastNumber}]` : "";
+
+        document.getElementById("stateText").textContent = data.running
+          ? `Status: Running (~${estMinutes} min left)${rangeHint}`
+          : `Status: Idle${rangeHint}`;
+
+        document.getElementById("progressText").textContent =
+          `${data.completed || 0} / ${data.total || 0} (OK: ${data.okCount || 0}, Err: ${data.errCount || 0})`;
+
+        const logsDiv = document.getElementById("logs");
+        if (Array.isArray(data.recentLogs) && data.recentLogs.length > 0) {
+          logsDiv.innerHTML = data.recentLogs
+            .map(l => {
+              const cls = String(l.status).startsWith("OK") ? "ok" : "err";
+              return `<div class="log-item">[${l.time}] <strong>${l.phone}</strong> — <span class="${cls}">${l.status}</span>: ${escapeHtml(l.detail)}</div>`;
+            })
+            .join("");
+          logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        if (!data.running && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } catch (err) {
+        showError(`Status check failed: ${err.message}`);
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    fetchStatus();
+  </script>
+</body>
+</html>
